@@ -1,0 +1,16 @@
+fn write_greeting(path: string, name: string) -> Result<string, string> {
+    var contents = "Hello, " + name + "!"
+    write_file(path, contents)?
+    return Ok(contents)
+}
+
+fn read_greeting(path: string) -> Result<string, string> {
+    var contents = read_file(path)?
+    return Ok(contents)
+}
+
+var path = "foxy_file_io_example.txt"
+
+write_greeting(path, "world")?
+var greeting = read_greeting(path)?
+print(greeting)

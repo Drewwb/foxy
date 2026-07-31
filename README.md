@@ -131,14 +131,16 @@ Kept in spirit where noted; the implementations do not survive.
 ### Milestone 1 — The Kernel (Weeks 5–12)
 *"A language exists."*
 
-- [x] Lexer + parser for core grammar. 65 tests total (lexer 18, parser 24, interpreter 18, REPL 5).
+- [x] Lexer + parser for core grammar. 68 tests total (lexer 18, parser 24, interpreter 21, REPL 5).
 - [x] Tree-walking interpreter first (fast to build, correct-by-construction); compilation comes later.
 - [x] Core types: numbers (int/float), strings, bools, lists, records. **Dates/times deferred** to Milestone 2.
 - [x] Control flow, functions, error handling (`Result`-style with postfix `?`). **Modules**: `import` parses but resolution is deferred to Den (Milestone 4) — no working module system yet.
 - [x] The **REPL v0** — `foxy` with no arguments (or `foxy repl`) drops in. Multi-line blocks, persistent variables/functions across lines, bare expressions print their value.
 - [x] Canonical formatter (`foxy fmt`) — placeholder command shipped; real formatting comes later.
 
-**Exit criteria:** FizzBuzz, file I/O, and a 200-line script all run; REPL is pleasant.
+**Exit criteria:** FizzBuzz (`examples/fizzbuzz.foxy`) ✓, file I/O (`examples/file_io.foxy`, `read_file`/`write_file` builtins returning `Result`) ✓, REPL is pleasant ✓. "200-line script" not literally exercised yet, but nothing in the language would stop one.
+
+**Milestone 1 is functionally complete.** Known gaps carried forward (all documented in [`docs/grammar.md`](docs/grammar.md)): no module resolution yet (Milestone 4/Den), no `null` in type position, no static type-checking (annotations are currently decorative).
 
 ### Milestone 2 — The Data Soul (Weeks 13–24)
 *"The reason Foxy exists comes alive."*

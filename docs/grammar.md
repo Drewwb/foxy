@@ -168,6 +168,7 @@ var adults = select name, age from customers where age >= 18
 - `else if` chains via the recursive `if_stmt` in `else`, not a separate `elif` keyword.
 - No exponent operator, no bitwise operators, no ternary — not mentioned in the design doc, kept out until something needs them.
 - `List<T>` written as a type but list *literals* don't currently infer/check element type — type-checking is out of scope for the parser itself.
+- **Known gap, not yet fixed:** `null` cannot appear in type position (e.g. `Result<null, string>` fails to parse — `null` lexes as the literal keyword, not a type name), so there's no clean way to write "a Result whose success case carries nothing." Worked around in `examples/file_io.foxy` by having the success payload be a real value instead. Needs a decision (a `Unit`/`Null` type name? allow bare `null` as a type?) before it's exercised for real — not deciding it under time pressure just to unblock an example.
 
 ---
 

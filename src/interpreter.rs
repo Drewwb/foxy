@@ -299,14 +299,8 @@ impl Interpreter {
             values.push(self.eval_expr(arg, scopes)?);
         }
 
-        if name == "print" {
-            let rendered = values
-                .iter()
-                .map(|v| v.to_string())
-                .collect::<Vec<_>>()
-                .join(" ");
-            println!("{rendered}");
-            return Ok(Value::Null);
+        if let Some(result) = call_builtin(name, &values) {
+            return result;
         }
 
         let Some(func) = self.functions.get(name).cloned() else {
@@ -329,6 +323,51 @@ impl Interpreter {
             Err(Signal::Fatal(msg)) => Err(Signal::Fatal(msg)),
         }
     }
+}
+
+/// Built-in functions available without any `import`. Returns `None` if
+/// `name` isn't one, so the caller falls through to user-defined functions.
+fn call_builtin(name: &str, args: &[Value]) -> Option<SigResult<Value>> {
+    match name {
+        "print" => {
+            let rendered = args
+                .iter()
+                .map(|v| v.to_string())
+                .collect::<Vec<_>>()
+                .join(" ");
+            println!("{rendered}");
+            Some(Ok(Value::Null))
+        }
+        "read_file" => Some(builtin_read_file(args)),
+        "write_file" => Some(builtin_write_file(args)),
+        _ => None,
+    }
+}
+
+fn builtin_read_file(args: &[Value]) -> SigResult<Value> {
+    let [Value::Str(path)] = args else {
+        return Err(Signal::Fatal(
+            "read_file(path) expects a single string argument".to_string(),
+        ));
+    };
+    let result = match std::fs::read_to_string(path) {
+        Ok(contents) => Ok(Box::new(Value::Str(contents))),
+        Err(e) => Err(Box::new(Value::Str(e.to_string()))),
+    };
+    Ok(Value::Result(result))
+}
+
+fn builtin_write_file(args: &[Value]) -> SigResult<Value> {
+    let [Value::Str(path), Value::Str(contents)] = args else {
+        return Err(Signal::Fatal(
+            "write_file(path, contents) expects two string arguments".to_string(),
+        ));
+    };
+    let result = match std::fs::write(path, contents) {
+        Ok(()) => Ok(Box::new(Value::Null)),
+        Err(e) => Err(Box::new(Value::Str(e.to_string()))),
+    };
+    Ok(Value::Result(result))
 }
 
 fn eval_binary(op: BinOp, left: Value, right: Value) -> Result<Value, String> {
@@ -604,6 +643,36 @@ var result = p.age"#
             "/examples/fizzbuzz.foxy"
         ))
         .expect("fizzbuzz example should exist");
+        assert!(run(&src).is_ok());
+    }
+
+    #[test]
+    fn write_file_then_read_file_round_trips_via_result() {
+        let path = std::env::temp_dir().join("foxy_interp_test_round_trip.txt");
+        let path_str = path.to_str().unwrap().replace('\\', "\\\\");
+        let src = format!(
+            r#"var w = write_file("{path_str}", "hello from foxy")?
+var result = read_file("{path_str}")?"#
+        );
+        assert_eq!(eval_result(&src), Value::Str("hello from foxy".into()));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn read_file_missing_path_is_an_err_variant() {
+        match eval_result(r#"var result = read_file("/no/such/path/foxy_missing.txt")"#) {
+            Value::Result(Err(_)) => {}
+            other => panic!("expected an Err Result, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn runs_file_io_example() {
+        let src = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/examples/file_io.foxy"
+        ))
+        .expect("file_io example should exist");
         assert!(run(&src).is_ok());
     }
 }

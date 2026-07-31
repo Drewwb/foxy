@@ -9,3 +9,6 @@
 *.swp
 .DS_Store
 Thumbs.db
+
+# written by examples/file_io.foxy when run from the repo root
+/foxy_file_io_example.txt

@@ -7,6 +7,7 @@
 ```
 cargo build
 cargo test
+cargo run                         # starts the REPL
 cargo run -- run examples/fizzbuzz.foxy
 cargo run -- fmt some/file.foxy   # placeholder, not yet implemented
 ```
@@ -130,11 +131,11 @@ Kept in spirit where noted; the implementations do not survive.
 ### Milestone 1 — The Kernel (Weeks 5–12)
 *"A language exists."*
 
-- [x] Lexer + parser for core grammar. 60 tests total (lexer 18, parser 24, interpreter 18).
+- [x] Lexer + parser for core grammar. 65 tests total (lexer 18, parser 24, interpreter 18, REPL 5).
 - [x] Tree-walking interpreter first (fast to build, correct-by-construction); compilation comes later.
 - [x] Core types: numbers (int/float), strings, bools, lists, records. **Dates/times deferred** to Milestone 2.
 - [x] Control flow, functions, error handling (`Result`-style with postfix `?`). **Modules**: `import` parses but resolution is deferred to Den (Milestone 4) — no working module system yet.
-- [ ] The **REPL v0** — even before the data engine, the interactive loop is the product's soul.
+- [x] The **REPL v0** — `foxy` with no arguments (or `foxy repl`) drops in. Multi-line blocks, persistent variables/functions across lines, bare expressions print their value.
 - [x] Canonical formatter (`foxy fmt`) — placeholder command shipped; real formatting comes later.
 
 **Exit criteria:** FizzBuzz, file I/O, and a 200-line script all run; REPL is pleasant.

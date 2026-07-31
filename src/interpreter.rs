@@ -41,10 +41,23 @@ impl Interpreter {
         }
     }
 
-    /// Runs a whole program: hoists `fn` declarations first (so call order
-    /// doesn't matter), then executes the remaining top-level statements in
-    /// order, as if they were the body of an implicit `main`.
+    /// Runs a whole program in a fresh top-level scope: hoists `fn`
+    /// declarations first (so call order doesn't matter), then executes the
+    /// remaining top-level statements in order, as if they were the body of
+    /// an implicit `main`. This is what `foxy run` uses.
     pub fn run_program(&mut self, program: &[Stmt]) -> Result<(), String> {
+        let mut scopes: Vec<HashMap<String, Value>> = vec![HashMap::new()];
+        self.run_in_scopes(program, &mut scopes)
+    }
+
+    /// Same as [`Self::run_program`], but against a scope stack the caller
+    /// owns and can reuse across calls -- what the REPL uses to keep
+    /// variables and functions alive between lines.
+    pub fn run_in_scopes(
+        &mut self,
+        program: &[Stmt],
+        scopes: &mut Vec<HashMap<String, Value>>,
+    ) -> Result<(), String> {
         for stmt in program {
             if let Stmt::FnDecl {
                 name, params, body, ..
@@ -60,12 +73,11 @@ impl Interpreter {
             }
         }
 
-        let mut scopes: ScopeStack = vec![Scope::new()];
         for stmt in program {
             if matches!(stmt, Stmt::FnDecl { .. }) {
                 continue;
             }
-            match self.exec_stmt(stmt, &mut scopes) {
+            match self.exec_stmt(stmt, scopes) {
                 Ok(()) => {}
                 Err(Signal::Return(_)) => break,
                 Err(Signal::Propagate(v)) => {
@@ -75,6 +87,25 @@ impl Interpreter {
             }
         }
         Ok(())
+    }
+
+    /// Evaluates a single expression against a persistent scope stack and
+    /// returns its value, for the REPL's "bare expression prints its value"
+    /// behavior. `return`/`?` at this level (outside any function) are
+    /// reported as errors rather than silently doing something surprising.
+    pub fn eval_repl_expr(
+        &mut self,
+        expr: &Expr,
+        scopes: &mut Vec<HashMap<String, Value>>,
+    ) -> Result<Value, String> {
+        match self.eval_expr(expr, scopes) {
+            Ok(v) => Ok(v),
+            Err(Signal::Fatal(msg)) => Err(msg),
+            Err(Signal::Propagate(v)) => {
+                Err(format!("unhandled error propagated to top level: {v}"))
+            }
+            Err(Signal::Return(_)) => Err("'return' is not valid outside a function".to_string()),
+        }
     }
 
     fn exec_block(&mut self, stmts: &[Stmt], scopes: &mut ScopeStack) -> SigResult<()> {

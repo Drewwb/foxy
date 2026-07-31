@@ -1,3 +1,5 @@
+mod repl;
+
 use std::process::ExitCode;
 
 use foxy::interpreter::Interpreter;
@@ -8,6 +10,10 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
     match args.first().map(String::as_str) {
+        Some("repl") => {
+            repl::run();
+            ExitCode::SUCCESS
+        }
         Some("run") => cmd_run(&args[1..]),
         Some("fmt") => cmd_fmt(&args[1..]),
         Some("lex") => cmd_lex(&args[1..]),
@@ -17,8 +23,11 @@ fn main() -> ExitCode {
             print_usage();
             ExitCode::FAILURE
         }
+        // Running `foxy` with no arguments drops into the REPL -- it's meant
+        // to be the default way to explore, per the design doc, not an
+        // afterthought behind a subcommand.
         None => {
-            print_usage();
+            repl::run();
             ExitCode::SUCCESS
         }
     }
@@ -149,9 +158,11 @@ fn print_usage() {
         "foxy — the Foxy language toolchain\n\
          \n\
          USAGE:\n\
+         \x20   foxy               Start the REPL\n\
          \x20   foxy <command> [args]\n\
          \n\
          COMMANDS:\n\
+         \x20   repl             Start the REPL (same as no arguments)\n\
          \x20   run <path>       Run a Foxy script\n\
          \x20   fmt [path...]    Format Foxy source files (placeholder — not yet implemented)"
     );

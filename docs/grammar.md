@@ -35,6 +35,7 @@ Type annotations appear in `fn` params/return and nowhere else yet (no `var x: i
 program        ::= (statement NEWLINE)* EOF
 
 statement       ::= var_decl
+                   | assign_stmt
                    | fn_decl
                    | if_stmt
                    | while_stmt
@@ -44,6 +45,8 @@ statement       ::= var_decl
                    | expr_stmt
 
 var_decl        ::= "var" IDENT "=" expr
+
+assign_stmt     ::= IDENT "=" expr   (* reassigns an existing binding; no new one is introduced *)
 
 fn_decl         ::= "fn" IDENT "(" params? ")" ("->" type)? block
 params          ::= param ("," param)*
@@ -158,6 +161,7 @@ var adults = select name, age from customers where age >= 18
 
 ## Open questions I made a call on (flag if you want to change any)
 
+- **Added `assign_stmt` (bare `IDENT "=" expr`) for reassignment**, distinct from `var_decl`. This wasn't in the original v0.1 draft you signed off on — it surfaced as a real gap while implementing the parser: without it, no loop can accumulate a running total (`sum_ages` in the kitchen-sink example needs `total = total + age`). This mirrors how Go/Rust/Kotlin/Swift all work (`var`/`let` declares, bare `=` reassigns), so I added it rather than re-asking, but flagging since it's a grammar change post-signoff.
 - Block comments `/* */` added for completeness — wasn't asked, low-risk default.
 - `null` as the keyword (vs `nil`/`none`) — matches "one kind of nothing" without importing Rust's `Option<T>` machinery.
 - `else if` chains via the recursive `if_stmt` in `else`, not a separate `elif` keyword.

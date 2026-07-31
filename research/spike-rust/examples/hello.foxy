@@ -1,0 +1,8 @@
+var name = "Alice"
+var age = 30
+
+fn greet(person: string) -> string {
+    return "Hello, " + person
+}
+
+var result = select name, age from customers where age >= 18

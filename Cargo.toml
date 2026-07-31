@@ -1,0 +1,13 @@
+[package]
+name = "foxy"
+version = "0.1.0"
+edition = "2024"
+description = "Foxy — a modern, data-native language inspired by Visual FoxPro."
+license = "MIT"
+repository = "https://github.com/Drewwb/foxy"
+
+[[bin]]
+name = "foxy"
+path = "src/main.rs"
+
+[dependencies]

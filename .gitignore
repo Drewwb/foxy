@@ -1,0 +1,11 @@
+/target
+**/target
+
+# local Claude Code settings (machine-specific, not project config)
+.claude/
+
+# editor/OS cruft
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

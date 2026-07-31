@@ -1,0 +1,32 @@
+import "std/strings"
+
+var name = "Alice"
+var age = 30
+var tags = ["vip", "beta"]
+var profile = { name: name, age: age, active: true }
+
+fn greet(person: string) -> string {
+    if person == "" {
+        return "Hello, stranger"
+    } else {
+        return "Hello, " + strings.upper(person)
+    }
+}
+
+fn classify(age: int) -> Result<string, string> {
+    if age < 0 {
+        return Err("negative age")
+    }
+    return Ok("adult")
+}
+
+fn sum_ages(people: List<int>) -> int {
+    var total = 0
+    for age in people {
+        total = total + age
+    }
+    return total
+}
+
+var label = classify(age)?
+var adults = select name, age from customers where age >= 18

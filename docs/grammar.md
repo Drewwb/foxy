@@ -76,7 +76,7 @@ expr            ::= try_expr
 try_expr        ::= comparison "?"?              (* postfix, only valid on Result-typed exprs *)
 comparison      ::= additive (("==" | "!=" | "<" | "<=" | ">" | ">=") additive)*
 additive        ::= multiplicative (("+" | "-") multiplicative)*
-multiplicative  ::= unary (("*" | "/") unary)*
+multiplicative  ::= unary (("*" | "/" | "%") unary)*
 unary           ::= ("-" | "!")? call
 call            ::= primary ("(" args? ")" | "." IDENT)*
 primary         ::= INT | FLOAT | STRING | "true" | "false" | "null"
@@ -161,6 +161,7 @@ var adults = select name, age from customers where age >= 18
 
 ## Open questions I made a call on (flag if you want to change any)
 
+- **Added `%` (modulo) at multiplicative precedence.** Same story as `assign_stmt` below: FizzBuzz — the Milestone 1 exit-criteria example — is impossible to write without it, and every C-family/scripting language places it alongside `*`/`/`, so this isn't really a fork worth a question.
 - **Added `assign_stmt` (bare `IDENT "=" expr`) for reassignment**, distinct from `var_decl`. This wasn't in the original v0.1 draft you signed off on — it surfaced as a real gap while implementing the parser: without it, no loop can accumulate a running total (`sum_ages` in the kitchen-sink example needs `total = total + age`). This mirrors how Go/Rust/Kotlin/Swift all work (`var`/`let` declares, bare `=` reassigns), so I added it rather than re-asking, but flagging since it's a grammar change post-signoff.
 - Block comments `/* */` added for completeness — wasn't asked, low-risk default.
 - `null` as the keyword (vs `nil`/`none`) — matches "one kind of nothing" without importing Rust's `Option<T>` machinery.

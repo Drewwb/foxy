@@ -32,6 +32,7 @@ pub enum Token {
     Minus,
     Star,
     Slash,
+    Percent,
     EqEq,
     NotEq,
     Lt,
@@ -150,6 +151,7 @@ impl Lexer {
             '+' => Ok(Token::Plus),
             '*' => Ok(Token::Star),
             '/' => Ok(Token::Slash),
+            '%' => Ok(Token::Percent),
             ',' => Ok(Token::Comma),
             ':' => Ok(Token::Colon),
             '.' => Ok(Token::Dot),
@@ -446,6 +448,19 @@ mod tests {
                 Token::Colon,
                 Token::Int(1),
                 Token::RBrace,
+                Token::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn lexes_percent_operator() {
+        assert_eq!(
+            lex("n % 3"),
+            vec![
+                Token::Ident("n".into()),
+                Token::Percent,
+                Token::Int(3),
                 Token::Eof,
             ]
         );

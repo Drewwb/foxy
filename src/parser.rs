@@ -289,6 +289,7 @@ impl Parser {
             let op = match self.peek() {
                 Token::Star => BinOp::Mul,
                 Token::Slash => BinOp::Div,
+                Token::Percent => BinOp::Mod,
                 _ => break,
             };
             self.advance();
@@ -674,6 +675,27 @@ mod tests {
                     right: Box::new(Expr::Binary {
                         op: BinOp::Mul,
                         left: Box::new(Expr::Int(2)),
+                        right: Box::new(Expr::Int(3)),
+                    }),
+                },
+            }]
+        );
+    }
+
+    #[test]
+    fn parses_modulo_at_multiplicative_precedence() {
+        // 10 - 4 % 3 == 10 - 1 == 9, not (10 - 4) % 3 == 2.
+        let stmts = parse("var x = 10 - 4 % 3");
+        assert_eq!(
+            stmts,
+            vec![Stmt::VarDecl {
+                name: "x".into(),
+                value: Expr::Binary {
+                    op: BinOp::Sub,
+                    left: Box::new(Expr::Int(10)),
+                    right: Box::new(Expr::Binary {
+                        op: BinOp::Mod,
+                        left: Box::new(Expr::Int(4)),
                         right: Box::new(Expr::Int(3)),
                     }),
                 },

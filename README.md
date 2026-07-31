@@ -7,6 +7,7 @@
 ```
 cargo build
 cargo test
+cargo run -- run examples/fizzbuzz.foxy
 cargo run -- fmt some/file.foxy   # placeholder, not yet implemented
 ```
 
@@ -129,10 +130,10 @@ Kept in spirit where noted; the implementations do not survive.
 ### Milestone 1 — The Kernel (Weeks 5–12)
 *"A language exists."*
 
-- [ ] Lexer + parser for core grammar (AI-assisted test-suite generation earns its keep here — thousands of syntax edge-case tests).
-- [ ] Tree-walking interpreter first (fast to build, correct-by-construction); compilation comes later.
-- [ ] Core types: numbers, strings, bools, dates/times (sane ones), lists, records.
-- [ ] Control flow, functions, modules, error handling (`Result`-style, not exception spaghetti).
+- [x] Lexer + parser for core grammar. 60 tests total (lexer 18, parser 24, interpreter 18).
+- [x] Tree-walking interpreter first (fast to build, correct-by-construction); compilation comes later.
+- [x] Core types: numbers (int/float), strings, bools, lists, records. **Dates/times deferred** to Milestone 2.
+- [x] Control flow, functions, error handling (`Result`-style with postfix `?`). **Modules**: `import` parses but resolution is deferred to Den (Milestone 4) — no working module system yet.
 - [ ] The **REPL v0** — even before the data engine, the interactive loop is the product's soul.
 - [x] Canonical formatter (`foxy fmt`) — placeholder command shipped; real formatting comes later.
 

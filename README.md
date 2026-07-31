@@ -119,7 +119,7 @@ Kept in spirit where noted; the implementations do not survive.
 - [x] Write the **language manifesto** (this doc is the seed) — publish it early; it's also the recruiting tool.
 - [x] Choose implementation host language — **Rust**, confirmed after a throwaway lexer/parser spike (see `research/spike-rust/`).
 - [ ] Choose storage engine for v0 (**SQLite embedded** is the pragmatic pick; revisit custom engine post-1.0).
-- [ ] Draft the **core grammar** (EBNF): keywords, expressions, query syntax, module syntax.
+- [x] Draft the **core grammar** (EBNF): keywords, expressions, query syntax, module syntax. See [`docs/grammar.md`](docs/grammar.md).
 - [ ] Specify the type system philosophy: gradual typing, schema types, NULL semantics — written down *before* coding.
 - [x] Set up repo, license (MIT), CI, and a `CONTRIBUTING.md`.
 - [ ] Name-check: secure GitHub org, domain, Den registry namespace.

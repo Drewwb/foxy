@@ -2,7 +2,7 @@
 
 *SQLite's embeddability + FoxPro's data-language fusion + modern tooling.*
 
-**Status:** early days — Milestone 0/1 (kernel: lexer, parser). Nothing here runs real programs yet.
+**Status:** early days. Milestone 1 (the kernel) is functionally complete: lexer, parser, tree-walking interpreter, and REPL, with 68 tests. It runs small programs (see `examples/fizzbuzz.foxy` and `examples/file_io.foxy`). There is no data engine, static typing, or module resolution yet; those are Milestones 2–4.
 
 ```
 cargo build

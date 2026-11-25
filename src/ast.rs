@@ -93,6 +93,11 @@ pub enum Expr {
         target: Box<Expr>,
         field: String,
     },
+    /// `target[index]` -- list indexing, zero-based.
+    Index {
+        target: Box<Expr>,
+        index: Box<Expr>,
+    },
     /// Postfix `?` error-propagation operator.
     Try(Box<Expr>),
     Ok(Box<Expr>),

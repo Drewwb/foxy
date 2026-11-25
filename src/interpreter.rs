@@ -294,6 +294,28 @@ impl Interpreter {
                 eval_binary(*op, l, r).map_err(Signal::Fatal)
             }
             Expr::Call { callee, args } => self.eval_call(callee, args, scopes),
+            Expr::Index { target, index } => {
+                let items = match self.eval_expr(target, scopes)? {
+                    Value::List(items) => items,
+                    other => {
+                        return Err(Signal::Fatal(format!(
+                            "cannot index into {other}; only lists can be indexed"
+                        )));
+                    }
+                };
+                let i = match self.eval_expr(index, scopes)? {
+                    Value::Int(i) => i,
+                    other => {
+                        return Err(Signal::Fatal(format!(
+                            "list index must be an int, got {other}"
+                        )));
+                    }
+                };
+                usize::try_from(i)
+                    .ok()
+                    .and_then(|i| items.into_iter().nth(i))
+                    .ok_or_else(|| Signal::Fatal(format!("index {i} is out of range")))
+            }
             Expr::FieldAccess { target, field } => match self.eval_expr(target, scopes)? {
                 Value::Record(fields) => fields
                     .into_iter()
@@ -1492,5 +1514,48 @@ update customers set name = [1] where true"#
         .unwrap_err();
         assert!(err.contains("cannot store"), "{err}");
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn indexes_lists_from_zero() {
+        assert_eq!(
+            eval_result("var xs = [10, 20, 30]\nvar result = xs[1]"),
+            Value::Int(20)
+        );
+        assert_eq!(
+            eval_result("var result = [[1, 2], [3]][1][0]"),
+            Value::Int(3)
+        );
+    }
+
+    #[test]
+    fn indexes_a_select_result_and_reads_a_field() {
+        let (path, db) = temp_db("index_rows");
+        let src = format!(
+            r#"open "{db}"
+var rows = select name from customers where age < 18
+var result = rows[0].name"#
+        );
+        assert_eq!(eval_result(&src), Value::Str("Bo".into()));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn out_of_range_and_negative_indexes_are_errors() {
+        for src in [
+            "var xs = [1]\nvar x = xs[1]",
+            "var xs = [1]\nvar x = xs[0 - 1]",
+        ] {
+            let err = run(src).unwrap_err();
+            assert!(err.contains("out of range"), "{err}");
+        }
+    }
+
+    #[test]
+    fn index_must_be_an_int_on_a_list() {
+        let err = run("var xs = [1]\nvar x = xs[\"0\"]").unwrap_err();
+        assert!(err.contains("must be an int"), "{err}");
+        let err = run("var n = 5\nvar x = n[0]").unwrap_err();
+        assert!(err.contains("only lists can be indexed"), "{err}");
     }
 }

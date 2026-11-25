@@ -153,7 +153,7 @@ Kept in spirit where noted; the implementations do not survive.
   delete from customers where age < 18
   ```
   `update` and `delete` require `where` (`where true` means every row), and all of a statement's changes apply in one transaction. `into cursor` was replaced by querying variables directly.
-- [ ] **Cursors as first-class values:** re-queryable, indexable, iterable, passable to functions. *Partly done:* any variable holding a list of records can follow `from` (query a query), and results are ordinary lists, so they iterate and pass to functions. Not yet: indexing (`rows[0]`) or a dedicated cursor type.
+- [ ] **Cursors as first-class values:** re-queryable, indexable, iterable, passable to functions. *Mostly done:* any variable holding a list of records can follow `from` (query a query), and results are ordinary lists, so they iterate, pass to functions, and index (`rows[0].name`, zero-based; out of range is an error). Not yet: a dedicated cursor type.
 - [ ] Schema types: compiler/interpreter validates column names and types against known schemas.
 - [ ] DBF **import** tool (`foxy import legacy.dbf`) — the bridge for FoxPro refugees, and a great marketing story.
 - [ ] REPL data affordances: pretty-printed result grids, `describe`, quick histograms. *Partly done:* in the REPL, a query result (any non-empty list of records) prints as a grid with a row count; `print()` in scripts keeps the one-line form. `describe` and histograms not started.

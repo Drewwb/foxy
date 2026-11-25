@@ -426,6 +426,15 @@ impl Parser {
                         field,
                     };
                 }
+                Token::LBracket => {
+                    self.advance();
+                    let index = self.parse_expr()?;
+                    self.expect(Token::RBracket)?;
+                    expr = Expr::Index {
+                        target: Box::new(expr),
+                        index: Box::new(index),
+                    };
+                }
                 _ => break,
             }
         }
@@ -962,6 +971,16 @@ mod tests {
             parse(r#"open "shop.db""#),
             vec![Stmt::Open("shop.db".into())]
         );
+    }
+
+    #[test]
+    fn parses_chained_indexing_and_field_access() {
+        let stmts = parse("rows[i + 1].name");
+        let Stmt::ExprStmt(Expr::FieldAccess { target, field }) = &stmts[0] else {
+            panic!("expected field access, got {stmts:?}");
+        };
+        assert_eq!(field, "name");
+        assert!(matches!(**target, Expr::Index { .. }));
     }
 
     #[test]

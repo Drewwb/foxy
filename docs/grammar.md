@@ -89,7 +89,7 @@ comparison      ::= additive (("==" | "!=" | "<" | "<=" | ">" | ">=") additive)*
 additive        ::= multiplicative (("+" | "-") multiplicative)*
 multiplicative  ::= unary (("*" | "/" | "%") unary)*
 unary           ::= ("-" | "!")? call
-call            ::= primary ("(" args? ")" | "." IDENT)*
+call            ::= primary ("(" args? ")" | "." IDENT | "[" expr "]")*   (* [i]: zero-based list index *)
 primary         ::= INT | FLOAT | STRING | "true" | "false" | "null"
                    | IDENT
                    | list_lit

@@ -2,7 +2,7 @@
 
 *SQLite's embeddability + FoxPro's data-language fusion + modern tooling.*
 
-**Status:** early days. Milestone 1 (the kernel) is functionally complete: lexer, parser, tree-walking interpreter, and REPL. Milestone 2 has started: `open "file.db"` opens a SQLite database and `select ... from ... where ...` returns rows as records (see `examples/hello_data.foxy`). There is no cursor type, insert/update/delete, static typing, or module resolution yet.
+**Status:** early days. Milestone 1 (the kernel) is functionally complete: lexer, parser, tree-walking interpreter, and REPL. Milestone 2 has started: `open "file.db"` opens a SQLite database and `select ... from ... where ...` returns rows as records, and a result can be queried again (see `examples/hello_data.foxy`). There is no cursor type, insert/update/delete, static typing, or module resolution yet.
 
 ```
 cargo build
@@ -147,7 +147,7 @@ Kept in spirit where noted; the implementations do not survive.
 
 - [x] Embed SQLite; design the Foxy-to-storage mapping. `open "file.db"` opens a database; `select` returns a list of records (SQLite integer/real/text/NULL → `int`/`float`/`string`/`null`); `where` is evaluated by the interpreter per row. Decisions recorded in [`docs/grammar.md`](docs/grammar.md).
 - [ ] Native table syntax: `open table customers`, `select ... into cursor`, insert/update/delete as language statements.
-- [ ] **Cursors as first-class values:** re-queryable, indexable, iterable, passable to functions.
+- [ ] **Cursors as first-class values:** re-queryable, indexable, iterable, passable to functions. *Partly done:* any variable holding a list of records can follow `from` (query a query), and results are ordinary lists, so they iterate and pass to functions. Not yet: indexing (`rows[0]`) or a dedicated cursor type.
 - [ ] Schema types: compiler/interpreter validates column names and types against known schemas.
 - [ ] DBF **import** tool (`foxy import legacy.dbf`) — the bridge for FoxPro refugees, and a great marketing story.
 - [ ] REPL data affordances: pretty-printed result grids, `describe`, quick histograms.

@@ -9,3 +9,8 @@ print(adults)
 for c in select name, balance from customers where city == "Olympia" {
     print(c.name, "owes", c.balance)
 }
+
+// Query a query: any variable holding a list of records can follow `from`.
+var adults_everywhere = select name, age, city from customers where age >= 18
+var olympians = select name from adults_everywhere where city == "Olympia"
+print(olympians)

@@ -347,9 +347,13 @@ impl Interpreter {
         Ok((column_names, out))
     }
 
-    /// Evaluates a `select`: reads the table, keeps the rows where the
+    /// Evaluates a `select`: reads the source, keeps the rows where the
     /// `where` expression is true, and returns the chosen columns of each
     /// kept row as a record, fields in the order they were selected.
+    ///
+    /// The source after `from` is a variable holding a list of records if one
+    /// with that name is in scope (a "cursor", so query results can be queried
+    /// again), otherwise a table in the open database.
     ///
     /// Inside `where`, every column of the current row is in scope by name,
     /// including columns that aren't selected. Columns shadow variables of
@@ -361,7 +365,22 @@ impl Interpreter {
         where_clause: Option<&Expr>,
         scopes: &mut ScopeStack,
     ) -> SigResult<Value> {
-        let (column_names, rows) = self.fetch_table(table)?;
+        let cursor = scopes
+            .iter()
+            .rev()
+            .find_map(|scope| scope.get(table))
+            .cloned();
+        let (column_names, rows) = match cursor {
+            Some(value) => {
+                let (column_names, rows) = rows_from_records(table, value)?;
+                if rows.is_empty() {
+                    // An empty cursor has no known columns to check against.
+                    return Ok(Value::List(Vec::new()));
+                }
+                (column_names, rows)
+            }
+            None => self.fetch_table(table)?,
+        };
 
         // Resolve each selected column to its position up front, so a typo
         // fails even when the table is empty. SQLite names are case-insensitive.
@@ -372,7 +391,7 @@ impl Interpreter {
                 .position(|c| c.eq_ignore_ascii_case(col))
             else {
                 return Err(Signal::Fatal(format!(
-                    "unknown column '{col}' in table '{table}' (columns: {})",
+                    "unknown column '{col}' in '{table}' (columns: {})",
                     column_names.join(", ")
                 )));
             };
@@ -445,6 +464,51 @@ impl Interpreter {
             Err(Signal::Fatal(msg)) => Err(Signal::Fatal(msg)),
         }
     }
+}
+
+/// Turns a variable used as a `select` source into columns and rows. It must
+/// hold a list of records. Columns are every field name seen, in first-seen
+/// order; a record missing a field contributes `null` for it.
+fn rows_from_records(name: &str, value: Value) -> SigResult<(Vec<String>, Vec<Vec<Value>>)> {
+    let not_queryable = || {
+        Signal::Fatal(format!(
+            "cannot select from '{name}': it is not a list of records"
+        ))
+    };
+    let Value::List(items) = value else {
+        return Err(not_queryable());
+    };
+
+    let mut records = Vec::with_capacity(items.len());
+    let mut column_names: Vec<String> = Vec::new();
+    for item in items {
+        let Value::Record(fields) = item else {
+            return Err(not_queryable());
+        };
+        for (field, _) in &fields {
+            if !column_names.contains(field) {
+                column_names.push(field.clone());
+            }
+        }
+        records.push(fields);
+    }
+
+    let rows = records
+        .into_iter()
+        .map(|fields| {
+            column_names
+                .iter()
+                .map(|col| {
+                    fields
+                        .iter()
+                        .find(|(f, _)| f == col)
+                        .map(|(_, v)| v.clone())
+                        .unwrap_or(Value::Null)
+                })
+                .collect()
+        })
+        .collect();
+    Ok((column_names, rows))
 }
 
 /// Wraps a table or column name in double quotes for SQL, so names are never
@@ -989,5 +1053,80 @@ var rows = select name from custmers"#
         ))
         .expect("hello_data example should exist");
         assert!(run(&src).is_ok());
+    }
+
+    #[test]
+    fn select_from_a_previous_result_queries_it_again() {
+        let (path, db) = temp_db("cursor_chain");
+        let src = format!(
+            r#"open "{db}"
+var everyone = select name, age from customers
+var result = select name from everyone where age < 18"#
+        );
+        assert_eq!(
+            eval_result(&src),
+            Value::List(vec![Value::Record(vec![(
+                "name".into(),
+                Value::Str("Bo".into())
+            )])])
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn select_from_a_hand_built_list_needs_no_database() {
+        let src = r#"var people = [{ name: "Ann", age: 34 }, { name: "Bo" }]
+var result = select age, name from people"#;
+        assert_eq!(
+            eval_result(src),
+            Value::List(vec![
+                Value::Record(vec![
+                    ("age".into(), Value::Int(34)),
+                    ("name".into(), Value::Str("Ann".into())),
+                ]),
+                Value::Record(vec![
+                    ("age".into(), Value::Null),
+                    ("name".into(), Value::Str("Bo".into())),
+                ]),
+            ])
+        );
+    }
+
+    #[test]
+    fn a_variable_wins_over_a_table_with_the_same_name() {
+        let (path, db) = temp_db("cursor_shadow");
+        let src = format!(
+            r#"open "{db}"
+var customers = [{{ name: "Zed" }}]
+var result = select name from customers"#
+        );
+        assert_eq!(
+            eval_result(&src),
+            Value::List(vec![Value::Record(vec![(
+                "name".into(),
+                Value::Str("Zed".into())
+            )])])
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn select_from_an_empty_result_is_empty() {
+        let src = r#"var nobody = []
+var result = select name from nobody where age > 1"#;
+        assert_eq!(eval_result(src), Value::List(vec![]));
+    }
+
+    #[test]
+    fn select_from_a_non_record_variable_is_an_error() {
+        let err = run("var nums = [1, 2]\nvar rows = select x from nums").unwrap_err();
+        assert!(err.contains("not a list of records"), "{err}");
+    }
+
+    #[test]
+    fn select_unknown_column_in_a_cursor_is_an_error() {
+        let err =
+            run("var people = [{ name: \"Ann\" }]\nvar rows = select age from people").unwrap_err();
+        assert!(err.contains("unknown column 'age' in 'people'"), "{err}");
     }
 }

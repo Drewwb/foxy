@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::io::{self, Write};
 
 use foxy::ast::Stmt;
+use foxy::grid::render_for_repl;
 use foxy::interpreter::Interpreter;
 use foxy::lexer::{Lexer, Token};
 use foxy::parser::Parser;
@@ -91,7 +92,7 @@ fn run_entry(src: &str, interpreter: &mut Interpreter, scopes: &mut Vec<HashMap<
     if let [Stmt::ExprStmt(expr)] = program.as_slice() {
         match interpreter.eval_repl_expr(expr, scopes) {
             Ok(Value::Null) => {}
-            Ok(v) => println!("{v}"),
+            Ok(v) => println!("{}", render_for_repl(&v)),
             Err(e) => eprintln!("runtime error: {e}"),
         }
         return;
@@ -107,7 +108,8 @@ fn print_help() {
         "Type any statement or expression and press Enter.\n\
          Blocks ({{ ... }}) can span multiple lines -- the prompt changes\n\
          to '{CONTINUATION_PROMPT}' until they're closed.\n\
-         A bare expression (e.g. `1 + 2` or `some_var`) prints its value.\n\
+         A bare expression (e.g. `1 + 2` or `some_var`) prints its value;\n\
+         query results (lists of records) print as a grid.\n\
          Variables and functions persist for the rest of the session.\n\
          \n\
          :help          show this message\n\

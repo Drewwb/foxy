@@ -114,6 +114,8 @@ select_expr     ::= "select" IDENT ("," IDENT)* "from" IDENT ("where" expr)?
 
 **Writes (Drew, Nov 2026):** SQL-like `insert into` / `update ... set ... where` / `delete from ... where`, always against a database table (never a variable). `update` and `delete` must have a `where` clause — a parse error otherwise — and `where true` means every row, so a forgotten clause can't wipe a table. `where` and `set` expressions are evaluated per row by the interpreter, with the row's columns in scope (so `set age = age + 1` works). All rows are evaluated first, then every change is written in one SQLite transaction: if anything fails, nothing changes. Values stored: int, float, string, null; bools as 1/0; lists, records, and Results are rejected.
 
+**REPL grids (Drew, Nov 2026):** in the REPL only, a bare expression whose value is a non-empty list of records prints as a text grid with a row count. `print()` keeps the one-line form everywhere, so script output stays predictable. Stored `null` shows as `null`; a field a record lacks shows blank; long cells are cut at 40 characters.
+
 ## Functions, `Result`, and `?`
 
 - `Result<T, E>` is a built-in two-parameter type, not user-defined generics.

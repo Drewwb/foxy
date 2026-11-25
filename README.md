@@ -156,7 +156,7 @@ Kept in spirit where noted; the implementations do not survive.
 - [ ] **Cursors as first-class values:** re-queryable, indexable, iterable, passable to functions. *Partly done:* any variable holding a list of records can follow `from` (query a query), and results are ordinary lists, so they iterate and pass to functions. Not yet: indexing (`rows[0]`) or a dedicated cursor type.
 - [ ] Schema types: compiler/interpreter validates column names and types against known schemas.
 - [ ] DBF **import** tool (`foxy import legacy.dbf`) — the bridge for FoxPro refugees, and a great marketing story.
-- [ ] REPL data affordances: pretty-printed result grids, `describe`, quick histograms.
+- [ ] REPL data affordances: pretty-printed result grids, `describe`, quick histograms. *Partly done:* in the REPL, a query result (any non-empty list of records) prints as a grid with a row count; `print()` in scripts keeps the one-line form. `describe` and histograms not started.
 
 **Exit criteria:** the 3-line data hello-world works ✓ (`examples/hello_data.foxy`); a typo'd column name fails at check time (fails at run time today, with a clear message); a real DBF file imports cleanly.
 

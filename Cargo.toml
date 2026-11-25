@@ -11,3 +11,4 @@ name = "foxy"
 path = "src/main.rs"
 
 [dependencies]
+rusqlite = { version = "0.37", features = ["bundled"] }

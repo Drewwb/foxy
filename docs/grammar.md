@@ -42,6 +42,7 @@ statement       ::= var_decl
                    | for_stmt
                    | return_stmt
                    | import_stmt
+                   | open_stmt
                    | expr_stmt
 
 var_decl        ::= "var" IDENT "=" expr
@@ -61,6 +62,8 @@ for_stmt        ::= "for" IDENT "in" expr block
 return_stmt     ::= "return" expr?
 
 import_stmt     ::= "import" STRING
+
+open_stmt       ::= "open" STRING     (* opens a SQLite database file; Milestone 2 *)
 
 expr_stmt       ::= expr
 
@@ -96,6 +99,8 @@ select_expr     ::= "select" IDENT ("," IDENT)* "from" IDENT ("where" expr)?
 ```
 
 `select` stays exactly as spiked — it's already core grammar, not deferred to Milestone 2. What *is* deferred: `open table`, `into cursor`, and insert/update/delete statements, none of which are needed to parse a `select` expression.
+
+**Milestone 2 decisions (Drew, Nov 2026):** a program opens a whole database with `open "shop.db"` (not `open table`), and every table in it is then usable by name. `select` returns a list of records, fields in the order selected; a dedicated cursor type can come later. `where` is evaluated by the interpreter row by row, not translated to SQL. Opening a file that doesn't exist is an error (no empty database is created).
 
 ## Functions, `Result`, and `?`
 

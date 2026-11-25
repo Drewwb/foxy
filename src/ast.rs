@@ -31,6 +31,8 @@ pub enum Stmt {
     },
     Return(Option<Expr>),
     Import(String),
+    /// `open "path.db"` -- opens a SQLite database for later `select`s.
+    Open(String),
     ExprStmt(Expr),
 }
 

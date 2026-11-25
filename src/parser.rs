@@ -34,6 +34,7 @@ impl Parser {
             Token::For => self.parse_for_stmt(),
             Token::Return => self.parse_return(),
             Token::Import => self.parse_import(),
+            Token::Open => self.parse_open(),
             Token::Ident(_) if self.peek_at(1) == &Token::Equals => self.parse_assign(),
             _ => Ok(Stmt::ExprStmt(self.parse_expr()?)),
         }
@@ -187,6 +188,20 @@ impl Parser {
             }
             other => Err(format!(
                 "expected a string path after 'import', found {other:?}"
+            )),
+        }
+    }
+
+    /// `open "path.db"`. The path must be a string literal for now.
+    fn parse_open(&mut self) -> ParseResult<Stmt> {
+        self.expect(Token::Open)?;
+        match self.peek().clone() {
+            Token::Str(path) => {
+                self.advance();
+                Ok(Stmt::Open(path))
+            }
+            other => Err(format!(
+                "expected a string path after 'open', found {other:?}"
             )),
         }
     }
@@ -866,6 +881,22 @@ mod tests {
             parse(r#"import "std/strings""#),
             vec![Stmt::Import("std/strings".into())]
         );
+    }
+
+    #[test]
+    fn parses_open() {
+        assert_eq!(
+            parse(r#"open "shop.db""#),
+            vec![Stmt::Open("shop.db".into())]
+        );
+    }
+
+    #[test]
+    fn open_requires_a_string_path() {
+        let tokens = Lexer::new("open shop")
+            .tokenize()
+            .expect("lex should succeed");
+        assert!(Parser::new(tokens).parse_program().is_err());
     }
 
     #[test]

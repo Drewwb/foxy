@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use rusqlite::{Connection, OpenFlags, config::DbConfig, types::ValueRef};
+
 use crate::ast::{BinOp, Expr, Stmt, UnaryOp};
 use crate::value::Value;
 
@@ -26,6 +28,8 @@ type SigResult<T> = Result<T, Signal>;
 
 pub struct Interpreter {
     functions: HashMap<String, FunctionDef>,
+    /// The database opened by the most recent `open` statement, if any.
+    db: Option<Connection>,
 }
 
 impl Default for Interpreter {
@@ -38,6 +42,7 @@ impl Interpreter {
     pub fn new() -> Self {
         Interpreter {
             functions: HashMap::new(),
+            db: None,
         }
     }
 
@@ -194,6 +199,20 @@ impl Interpreter {
                 Err(Signal::Return(v))
             }
             Stmt::Import(_) => Ok(()), // module resolution is out of scope until Den (Milestone 4)
+            Stmt::Open(path) => {
+                // No CREATE flag: opening a path that doesn't exist is an
+                // error, so a typo'd filename can't silently make an empty db.
+                let flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+                let conn = Connection::open_with_flags(path, flags)
+                    .map_err(|e| Signal::Fatal(format!("cannot open database '{path}': {e}")))?;
+                // SQLite's legacy "double-quoted string" mode would turn a
+                // misspelled quoted column name into a text literal instead of
+                // an error. Turn it off so typos fail loudly.
+                conn.set_db_config(DbConfig::SQLITE_DBCONFIG_DQS_DML, false)
+                    .map_err(|e| Signal::Fatal(format!("cannot configure database: {e}")))?;
+                self.db = Some(conn);
+                Ok(())
+            }
             Stmt::ExprStmt(expr) => {
                 self.eval_expr(expr, scopes)?;
                 Ok(())
@@ -275,11 +294,63 @@ impl Interpreter {
             },
             Expr::Ok(inner) => Ok(Value::Result(Ok(Box::new(self.eval_expr(inner, scopes)?)))),
             Expr::Err(inner) => Ok(Value::Result(Err(Box::new(self.eval_expr(inner, scopes)?)))),
-            Expr::Select { .. } => Err(Signal::Fatal(
-                "select expressions require the data engine, which doesn't exist yet (Milestone 2)"
-                    .to_string(),
-            )),
+            Expr::Select {
+                columns,
+                table,
+                where_clause,
+            } => {
+                if where_clause.is_some() {
+                    return Err(Signal::Fatal(
+                        "'where' in select is not implemented yet".to_string(),
+                    ));
+                }
+                let rows = self.query_rows(columns, table)?;
+                Ok(Value::List(rows))
+            }
         }
+    }
+
+    /// Runs `SELECT columns FROM table` against the open database and turns
+    /// each row into a record, with fields in the order they were selected.
+    fn query_rows(&self, columns: &[String], table: &str) -> SigResult<Vec<Value>> {
+        let Some(db) = &self.db else {
+            return Err(Signal::Fatal(
+                "no database is open; use `open \"file.db\"` before `select`".to_string(),
+            ));
+        };
+
+        let column_list = columns
+            .iter()
+            .map(|c| quote_ident(c))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!("SELECT {column_list} FROM {}", quote_ident(table));
+        let sql_err = |e: rusqlite::Error| Signal::Fatal(format!("query failed: {e}"));
+
+        let mut stmt = db.prepare(&sql).map_err(sql_err)?;
+        let mut rows = stmt.query([]).map_err(sql_err)?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next().map_err(sql_err)? {
+            let mut fields = Vec::with_capacity(columns.len());
+            for (i, name) in columns.iter().enumerate() {
+                let value = match row.get_ref(i).map_err(sql_err)? {
+                    ValueRef::Null => Value::Null,
+                    ValueRef::Integer(n) => Value::Int(n),
+                    ValueRef::Real(f) => Value::Float(f),
+                    ValueRef::Text(bytes) => {
+                        Value::Str(String::from_utf8_lossy(bytes).into_owned())
+                    }
+                    ValueRef::Blob(_) => {
+                        return Err(Signal::Fatal(format!(
+                            "column '{name}' holds binary data, which Foxy can't represent yet"
+                        )));
+                    }
+                };
+                fields.push((name.clone(), value));
+            }
+            out.push(Value::Record(fields));
+        }
+        Ok(out)
     }
 
     fn eval_call(
@@ -323,6 +394,13 @@ impl Interpreter {
             Err(Signal::Fatal(msg)) => Err(Signal::Fatal(msg)),
         }
     }
+}
+
+/// Wraps a table or column name in double quotes for SQL, so names are never
+/// read as SQL keywords. The lexer only produces plain identifiers, but quotes
+/// inside a name are escaped anyway.
+fn quote_ident(name: &str) -> String {
+    format!("\"{}\"", name.replace('"', "\"\""))
 }
 
 /// Built-in functions available without any `import`. Returns `None` if
@@ -674,5 +752,108 @@ var result = read_file("{path_str}")?"#
         ))
         .expect("file_io example should exist");
         assert!(run(&src).is_ok());
+    }
+
+    /// Creates a fresh SQLite file in the temp dir with a small `customers`
+    /// table, and returns its path escaped for use inside a Foxy string.
+    fn temp_db(name: &str) -> (std::path::PathBuf, String) {
+        let path = std::env::temp_dir().join(format!("foxy_test_{name}.db"));
+        let _ = std::fs::remove_file(&path);
+        let conn = Connection::open(&path).expect("create test db");
+        conn.execute_batch(
+            "CREATE TABLE customers (name TEXT, age INTEGER, balance REAL, note TEXT);
+             INSERT INTO customers VALUES ('Ann', 34, 12.5, NULL);
+             INSERT INTO customers VALUES ('Bo', 17, 0.0, 'minor');",
+        )
+        .expect("seed test db");
+        let escaped = path.to_str().unwrap().replace('\\', "\\\\");
+        (path, escaped)
+    }
+
+    #[test]
+    fn select_returns_rows_as_records_in_column_order() {
+        let (path, db) = temp_db("select_rows");
+        let src = format!(
+            r#"open "{db}"
+var result = select age, name from customers"#
+        );
+        assert_eq!(
+            eval_result(&src),
+            Value::List(vec![
+                Value::Record(vec![
+                    ("age".into(), Value::Int(34)),
+                    ("name".into(), Value::Str("Ann".into())),
+                ]),
+                Value::Record(vec![
+                    ("age".into(), Value::Int(17)),
+                    ("name".into(), Value::Str("Bo".into())),
+                ]),
+            ])
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn select_maps_sqlite_real_and_null_to_foxy_values() {
+        let (path, db) = temp_db("select_types");
+        let src = format!(
+            r#"open "{db}"
+var rows = select balance, note from customers
+var result = rows"#
+        );
+        match eval_result(&src) {
+            Value::List(rows) => assert_eq!(
+                rows[0],
+                Value::Record(vec![
+                    ("balance".into(), Value::Float(12.5)),
+                    ("note".into(), Value::Null),
+                ])
+            ),
+            other => panic!("expected a list, got {other:?}"),
+        }
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn select_rows_work_with_for_and_field_access() {
+        let (path, db) = temp_db("select_for");
+        let src = format!(
+            r#"open "{db}"
+var total = 0
+for row in select age from customers {{
+    total = total + row.age
+}}
+var result = total"#
+        );
+        assert_eq!(eval_result(&src), Value::Int(51));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn select_without_open_is_an_error() {
+        let err = run("var rows = select name from customers").unwrap_err();
+        assert!(err.contains("no database is open"), "{err}");
+    }
+
+    #[test]
+    fn open_missing_file_is_an_error_and_creates_nothing() {
+        let path = std::env::temp_dir().join("foxy_test_does_not_exist.db");
+        let _ = std::fs::remove_file(&path);
+        let db = path.to_str().unwrap().replace('\\', "\\\\");
+        let err = run(&format!(r#"open "{db}""#)).unwrap_err();
+        assert!(err.contains("cannot open database"), "{err}");
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn select_unknown_column_reports_the_sqlite_error() {
+        let (path, db) = temp_db("select_bad_column");
+        let err = run(&format!(
+            r#"open "{db}"
+var rows = select nmae from customers"#
+        ))
+        .unwrap_err();
+        assert!(err.contains("nmae"), "{err}");
+        let _ = std::fs::remove_file(&path);
     }
 }

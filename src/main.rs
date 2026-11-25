@@ -15,6 +15,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Some("run") => cmd_run(&args[1..]),
+        Some("import") => cmd_import(&args[1..]),
         Some("fmt") => cmd_fmt(&args[1..]),
         Some("lex") => cmd_lex(&args[1..]),
         Some("parse") => cmd_parse(&args[1..]),
@@ -29,6 +30,32 @@ fn main() -> ExitCode {
         None => {
             repl::run();
             ExitCode::SUCCESS
+        }
+    }
+}
+
+fn cmd_import(args: &[String]) -> ExitCode {
+    let (dbf, db, encoding) = match args {
+        [dbf, db] => (dbf, db, None),
+        [dbf, db, flag, enc] if flag == "--encoding" => (dbf, db, Some(enc.as_str())),
+        _ => {
+            eprintln!("usage: foxy import <table.dbf> <database.db> [--encoding cp850]");
+            return ExitCode::FAILURE;
+        }
+    };
+    match foxy::import::import_dbf(dbf.as_ref(), db.as_ref(), encoding) {
+        Ok(summary) => {
+            println!(
+                "imported {} row(s) into table '{}' in {db} (columns: {})",
+                summary.rows,
+                summary.table,
+                summary.columns.join(", ")
+            );
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("foxy: import failed: {e}");
+            ExitCode::FAILURE
         }
     }
 }
@@ -164,6 +191,8 @@ fn print_usage() {
          COMMANDS:\n\
          \x20   repl             Start the REPL (same as no arguments)\n\
          \x20   run <path>       Run a Foxy script\n\
+         \x20   import <table.dbf> <database.db> [--encoding cp850]\n\
+         \x20                    Copy a FoxPro/dBASE table into a SQLite database\n\
          \x20   fmt [path...]    Format Foxy source files (placeholder — not yet implemented)"
     );
     #[cfg(debug_assertions)]

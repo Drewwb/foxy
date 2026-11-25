@@ -11,4 +11,5 @@ name = "foxy"
 path = "src/main.rs"
 
 [dependencies]
+dbase = { version = "0.8.0", features = ["yore"] }
 rusqlite = { version = "0.37", features = ["bundled"] }

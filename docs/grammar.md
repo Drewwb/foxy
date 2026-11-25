@@ -116,6 +116,8 @@ select_expr     ::= "select" IDENT ("," IDENT)* "from" IDENT ("where" expr)?
 
 **REPL grids (Drew, Nov 2026):** in the REPL only, a bare expression whose value is a non-empty list of records prints as a text grid with a row count. `print()` keeps the one-line form everywhere, so script output stays predictable. Stored `null` shows as `null`; a field a record lacks shows blank; long cells are cut at 40 characters.
 
+**DBF import (Drew, Nov 2026):** `foxy import <table.dbf> <database.db> [--encoding cp850]` is a command, not language syntax. It creates the database if needed and refuses to touch an existing table. Table and column names are lowercased and made into valid Foxy identifiers (other characters → `_`, leading digit → `_` prefix, keyword → `_` suffix, checked with Foxy's own lexer). Deleted records are skipped. Character/memo → text (blank → empty string); numeric → SQLite NUMERIC so whole numbers read back as `int`; float/double/currency → real; logical → 1/0; date → `YYYY-MM-DD`, datetime → `YYYY-MM-DD HH:MM:SS` (no date type yet); blank numbers, dates, and logicals → `null`. Text uses the code page recorded in the file unless `--encoding` overrides it; unknown encodings are rejected.
+
 ## Functions, `Result`, and `?`
 
 - `Result<T, E>` is a built-in two-parameter type, not user-defined generics.

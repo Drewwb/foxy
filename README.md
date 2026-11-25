@@ -2,7 +2,7 @@
 
 *SQLite's embeddability + FoxPro's data-language fusion + modern tooling.*
 
-**Status:** early days. Milestone 1 (the kernel) is functionally complete: lexer, parser, tree-walking interpreter, and REPL. Milestone 2 has started: `open "file.db"` opens a SQLite database and `select ... from ... where ...` returns rows as records, a result can be queried again (see `examples/hello_data.foxy`), and `insert`/`update`/`delete` write to tables. There is no dedicated cursor type, static typing, or module resolution yet.
+**Status:** early days. Milestone 1 (the kernel) is functionally complete: lexer, parser, tree-walking interpreter, and REPL. Milestone 2 has started: `open "file.db"` opens a SQLite database and `select ... from ... where ...` returns rows as records, a result can be queried again (see `examples/hello_data.foxy`), `insert`/`update`/`delete` write to tables, and `foxy import` brings in FoxPro `.dbf` tables. There is no dedicated cursor type, static typing, or module resolution yet.
 
 ```
 cargo build
@@ -155,10 +155,10 @@ Kept in spirit where noted; the implementations do not survive.
   `update` and `delete` require `where` (`where true` means every row), and all of a statement's changes apply in one transaction. `into cursor` was replaced by querying variables directly.
 - [ ] **Cursors as first-class values:** re-queryable, indexable, iterable, passable to functions. *Mostly done:* any variable holding a list of records can follow `from` (query a query), and results are ordinary lists, so they iterate, pass to functions, and index (`rows[0].name`, zero-based; out of range is an error). Not yet: a dedicated cursor type.
 - [ ] Schema types: compiler/interpreter validates column names and types against known schemas.
-- [ ] DBF **import** tool (`foxy import legacy.dbf`) — the bridge for FoxPro refugees, and a great marketing story.
+- [x] DBF **import** tool (`foxy import legacy.dbf shop.db [--encoding cp850]`) — the bridge for FoxPro refugees, and a great marketing story. Copies a FoxPro/dBASE table into a new SQLite table (names lowercased and made typeable, deleted records skipped, dates as `YYYY-MM-DD` text, logicals as 1/0, whole numbers as ints). Tested on the `dbase` crate's real-world sample files (deleted records, code page 850, a German customer schema); not yet on a table from a live VFP install.
 - [ ] REPL data affordances: pretty-printed result grids, `describe`, quick histograms. *Partly done:* in the REPL, a query result (any non-empty list of records) prints as a grid with a row count; `print()` in scripts keeps the one-line form. `describe` and histograms not started.
 
-**Exit criteria:** the 3-line data hello-world works ✓ (`examples/hello_data.foxy`); a typo'd column name fails at check time (fails at run time today, with a clear message); a real DBF file imports cleanly.
+**Exit criteria:** the 3-line data hello-world works ✓ (`examples/hello_data.foxy`); a typo'd column name fails at check time (fails at run time today, with a clear message); a real DBF file imports cleanly (✓ for sample files; a live VFP table still to try).
 
 ### Milestone 3 — Instant UI (Weeks 25–32)
 *"The BROWSE moment."*

@@ -2,7 +2,7 @@
 
 *SQLite's embeddability + FoxPro's data-language fusion + modern tooling.*
 
-**Status:** early days. Milestone 1 (the kernel) is functionally complete: lexer, parser, tree-walking interpreter, and REPL. Milestone 2 has started: `open "file.db"` opens a SQLite database and `select ... from ... where ...` returns rows as records, and a result can be queried again (see `examples/hello_data.foxy`). There is no cursor type, insert/update/delete, static typing, or module resolution yet.
+**Status:** early days. Milestone 1 (the kernel) is functionally complete: lexer, parser, tree-walking interpreter, and REPL. Milestone 2 has started: `open "file.db"` opens a SQLite database and `select ... from ... where ...` returns rows as records, a result can be queried again (see `examples/hello_data.foxy`), and `insert`/`update`/`delete` write to tables. There is no dedicated cursor type, static typing, or module resolution yet.
 
 ```
 cargo build
@@ -146,7 +146,13 @@ Kept in spirit where noted; the implementations do not survive.
 *"The reason Foxy exists comes alive."*
 
 - [x] Embed SQLite; design the Foxy-to-storage mapping. `open "file.db"` opens a database; `select` returns a list of records (SQLite integer/real/text/NULL → `int`/`float`/`string`/`null`); `where` is evaluated by the interpreter per row. Decisions recorded in [`docs/grammar.md`](docs/grammar.md).
-- [ ] Native table syntax: `open table customers`, `select ... into cursor`, insert/update/delete as language statements.
+- [ ] Native table syntax: `open table customers`, `select ... into cursor`, insert/update/delete as language statements. *Partly done:* `open "file.db"` (whole database, chosen over `open table`) and insert/update/delete:
+  ```
+  insert into customers { name: "Fay", age: 40 }
+  update customers set age = age + 1 where name == "Bo"
+  delete from customers where age < 18
+  ```
+  `update` and `delete` require `where` (`where true` means every row), and all of a statement's changes apply in one transaction. `into cursor` was replaced by querying variables directly.
 - [ ] **Cursors as first-class values:** re-queryable, indexable, iterable, passable to functions. *Partly done:* any variable holding a list of records can follow `from` (query a query), and results are ordinary lists, so they iterate and pass to functions. Not yet: indexing (`rows[0]`) or a dedicated cursor type.
 - [ ] Schema types: compiler/interpreter validates column names and types against known schemas.
 - [ ] DBF **import** tool (`foxy import legacy.dbf`) — the bridge for FoxPro refugees, and a great marketing story.

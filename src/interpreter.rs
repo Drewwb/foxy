@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use rusqlite::{Connection, OpenFlags, config::DbConfig, types::ValueRef};
+use rusqlite::types::{Value as SqlValue, ValueRef};
+use rusqlite::{Connection, OpenFlags, config::DbConfig};
 
 use crate::ast::{BinOp, Expr, Stmt, UnaryOp};
 use crate::value::Value;
@@ -25,6 +26,14 @@ enum Signal {
 }
 
 type SigResult<T> = Result<T, Signal>;
+
+/// A whole table read from the database: column names, rows in column order,
+/// and (when asked for) each row's SQLite rowid.
+struct TableData {
+    columns: Vec<String>,
+    rows: Vec<Vec<Value>>,
+    rowids: Vec<i64>,
+}
 
 pub struct Interpreter {
     functions: HashMap<String, FunctionDef>,
@@ -199,6 +208,16 @@ impl Interpreter {
                 Err(Signal::Return(v))
             }
             Stmt::Import(_) => Ok(()), // module resolution is out of scope until Den (Milestone 4)
+            Stmt::Insert { table, record } => self.exec_insert(table, record, scopes),
+            Stmt::Update {
+                table,
+                assignments,
+                where_clause,
+            } => self.exec_update(table, assignments, where_clause, scopes),
+            Stmt::Delete {
+                table,
+                where_clause,
+            } => self.exec_delete(table, where_clause, scopes),
             Stmt::Open(path) => {
                 // No CREATE flag: opening a path that doesn't exist is an
                 // error, so a typo'd filename can't silently make an empty db.
@@ -302,33 +321,43 @@ impl Interpreter {
         }
     }
 
-    /// Reads every row of `table` from the open database. Returns the
-    /// table's column names and the rows as Foxy values, in column order.
-    fn fetch_table(&self, table: &str) -> SigResult<(Vec<String>, Vec<Vec<Value>>)> {
-        let Some(db) = &self.db else {
-            return Err(Signal::Fatal(
-                "no database is open; use `open \"file.db\"` before `select`".to_string(),
-            ));
-        };
+    /// The open database, or a clear error if `open` hasn't run yet.
+    fn db(&self) -> SigResult<&Connection> {
+        self.db.as_ref().ok_or_else(|| {
+            Signal::Fatal("no database is open; use `open \"file.db\"` first".to_string())
+        })
+    }
 
-        let sql = format!("SELECT * FROM {}", quote_ident(table));
-        let sql_err = |e: rusqlite::Error| {
-            let msg = e.to_string();
-            if msg.starts_with("no such table") {
-                Signal::Fatal(format!("unknown table '{table}'"))
-            } else {
-                Signal::Fatal(format!("query failed: {msg}"))
-            }
+    /// Reads every row of `table` from the open database, as Foxy values in
+    /// column order. With `with_rowids`, also returns each row's SQLite rowid,
+    /// which `update` and `delete` use to target exactly the matching rows.
+    fn fetch_table(&self, table: &str, with_rowids: bool) -> SigResult<TableData> {
+        let db = self.db()?;
+        let sql = if with_rowids {
+            format!("SELECT rowid, * FROM {}", quote_ident(table))
+        } else {
+            format!("SELECT * FROM {}", quote_ident(table))
         };
+        let sql_err = |e: rusqlite::Error| table_error(table, e);
 
         let mut stmt = db.prepare(&sql).map_err(sql_err)?;
-        let column_names: Vec<String> = stmt.column_names().into_iter().map(String::from).collect();
-        let mut rows = stmt.query([]).map_err(sql_err)?;
-        let mut out = Vec::new();
-        while let Some(row) = rows.next().map_err(sql_err)? {
-            let mut values = Vec::with_capacity(column_names.len());
-            for (i, name) in column_names.iter().enumerate() {
-                values.push(match row.get_ref(i).map_err(sql_err)? {
+        let skip = usize::from(with_rowids);
+        let columns: Vec<String> = stmt
+            .column_names()
+            .into_iter()
+            .skip(skip)
+            .map(String::from)
+            .collect();
+        let mut result = stmt.query([]).map_err(sql_err)?;
+        let mut rows = Vec::new();
+        let mut rowids = Vec::new();
+        while let Some(row) = result.next().map_err(sql_err)? {
+            if with_rowids {
+                rowids.push(row.get::<_, i64>(0).map_err(sql_err)?);
+            }
+            let mut values = Vec::with_capacity(columns.len());
+            for (i, name) in columns.iter().enumerate() {
+                values.push(match row.get_ref(i + skip).map_err(sql_err)? {
                     ValueRef::Null => Value::Null,
                     ValueRef::Integer(n) => Value::Int(n),
                     ValueRef::Real(f) => Value::Float(f),
@@ -342,9 +371,145 @@ impl Interpreter {
                     }
                 });
             }
-            out.push(values);
+            rows.push(values);
         }
-        Ok((column_names, out))
+        Ok(TableData {
+            columns,
+            rows,
+            rowids,
+        })
+    }
+
+    /// `insert into table record`: the record's fields become the columns.
+    fn exec_insert(
+        &mut self,
+        table: &str,
+        record: &Expr,
+        scopes: &mut ScopeStack,
+    ) -> SigResult<()> {
+        let fields = match self.eval_expr(record, scopes)? {
+            Value::Record(fields) => fields,
+            other => {
+                return Err(Signal::Fatal(format!(
+                    "insert expects a record like {{ name: \"Ann\" }}, got {other}"
+                )));
+            }
+        };
+        let table_columns = self.fetch_table(table, false)?.columns;
+        let mut names = Vec::with_capacity(fields.len());
+        let mut params = Vec::with_capacity(fields.len());
+        for (field, value) in &fields {
+            names.push(quote_ident(&resolve_column(table, &table_columns, field)?));
+            params.push(to_sql(field, value)?);
+        }
+
+        let sql = if names.is_empty() {
+            format!("INSERT INTO {} DEFAULT VALUES", quote_ident(table))
+        } else {
+            let placeholders = vec!["?"; names.len()].join(", ");
+            format!(
+                "INSERT INTO {} ({}) VALUES ({placeholders})",
+                quote_ident(table),
+                names.join(", ")
+            )
+        };
+        self.db()?
+            .execute(&sql, rusqlite::params_from_iter(params))
+            .map_err(|e| Signal::Fatal(format!("insert failed: {e}")))?;
+        Ok(())
+    }
+
+    /// `update table set ... where ...`. Every row's `where` (and, for
+    /// matching rows, every new value) is evaluated first; then all changes are
+    /// written in one transaction, so an error leaves the table untouched.
+    fn exec_update(
+        &mut self,
+        table: &str,
+        assignments: &[(String, Expr)],
+        where_clause: &Expr,
+        scopes: &mut ScopeStack,
+    ) -> SigResult<()> {
+        let data = self.fetch_table(table, true)?;
+        let mut targets = Vec::with_capacity(assignments.len());
+        for (column, _) in assignments {
+            targets.push(quote_ident(&resolve_column(table, &data.columns, column)?));
+        }
+
+        let mut changes = Vec::new();
+        for (row, rowid) in data.rows.into_iter().zip(data.rowids) {
+            scopes.push(data.columns.iter().cloned().zip(row).collect());
+            let outcome = self.eval_update_row(assignments, where_clause, scopes);
+            scopes.pop();
+            if let Some(new_values) = outcome? {
+                changes.push((rowid, new_values));
+            }
+        }
+
+        let set_list = targets
+            .iter()
+            .map(|t| format!("{t} = ?"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            "UPDATE {} SET {set_list} WHERE rowid = ?",
+            quote_ident(table)
+        );
+        self.write_rows(&sql, changes, "update")
+    }
+
+    /// For one row (already in scope): `None` if `where` is false, otherwise
+    /// the new value for each assignment, converted for SQLite.
+    fn eval_update_row(
+        &mut self,
+        assignments: &[(String, Expr)],
+        where_clause: &Expr,
+        scopes: &mut ScopeStack,
+    ) -> SigResult<Option<Vec<SqlValue>>> {
+        if !self.eval_bool(where_clause, scopes)? {
+            return Ok(None);
+        }
+        let mut values = Vec::with_capacity(assignments.len());
+        for (column, expr) in assignments {
+            values.push(to_sql(column, &self.eval_expr(expr, scopes)?)?);
+        }
+        Ok(Some(values))
+    }
+
+    /// `delete from table where ...`, evaluated and applied like `update`.
+    fn exec_delete(
+        &mut self,
+        table: &str,
+        where_clause: &Expr,
+        scopes: &mut ScopeStack,
+    ) -> SigResult<()> {
+        let data = self.fetch_table(table, true)?;
+        let mut doomed = Vec::new();
+        for (row, rowid) in data.rows.into_iter().zip(data.rowids) {
+            scopes.push(data.columns.iter().cloned().zip(row).collect());
+            let keep = self.eval_bool(where_clause, scopes);
+            scopes.pop();
+            if keep? {
+                doomed.push((rowid, Vec::new()));
+            }
+        }
+        let sql = format!("DELETE FROM {} WHERE rowid = ?", quote_ident(table));
+        self.write_rows(&sql, doomed, "delete")
+    }
+
+    /// Runs `sql` once per (rowid, values) pair inside one transaction. The
+    /// values bind to the leading `?`s and the rowid to the last one.
+    fn write_rows(&self, sql: &str, rows: Vec<(i64, Vec<SqlValue>)>, what: &str) -> SigResult<()> {
+        let fail = |e: rusqlite::Error| Signal::Fatal(format!("{what} failed: {e}"));
+        let tx = self.db()?.unchecked_transaction().map_err(fail)?;
+        {
+            let mut stmt = tx.prepare(sql).map_err(fail)?;
+            for (rowid, mut values) in rows {
+                values.push(SqlValue::Integer(rowid));
+                stmt.execute(rusqlite::params_from_iter(values))
+                    .map_err(fail)?;
+            }
+        }
+        tx.commit().map_err(fail)
     }
 
     /// Evaluates a `select`: reads the source, keeps the rows where the
@@ -379,7 +544,10 @@ impl Interpreter {
                 }
                 (column_names, rows)
             }
-            None => self.fetch_table(table)?,
+            None => {
+                let data = self.fetch_table(table, false)?;
+                (data.columns, data.rows)
+            }
         };
 
         // Resolve each selected column to its position up front, so a typo
@@ -509,6 +677,52 @@ fn rows_from_records(name: &str, value: Value) -> SigResult<(Vec<String>, Vec<Ve
         })
         .collect();
     Ok((column_names, rows))
+}
+
+/// Turns a SQLite error from reading `table` into a Foxy error message.
+fn table_error(table: &str, e: rusqlite::Error) -> Signal {
+    let msg = e.to_string();
+    if msg.starts_with("no such table") {
+        Signal::Fatal(format!("unknown table '{table}'"))
+    } else if msg.contains("no such column: rowid") {
+        Signal::Fatal(format!(
+            "table '{table}' has no rowid, which update/delete need (WITHOUT ROWID tables aren't supported)"
+        ))
+    } else {
+        Signal::Fatal(format!("query failed: {msg}"))
+    }
+}
+
+/// Finds `name` among a table's columns (case-insensitively, like SQLite)
+/// and returns the column's real spelling.
+fn resolve_column(table: &str, columns: &[String], name: &str) -> SigResult<String> {
+    columns
+        .iter()
+        .find(|c| c.eq_ignore_ascii_case(name))
+        .cloned()
+        .ok_or_else(|| {
+            Signal::Fatal(format!(
+                "unknown column '{name}' in '{table}' (columns: {})",
+                columns.join(", ")
+            ))
+        })
+}
+
+/// Converts a Foxy value into one SQLite can store. Bools are stored as 1/0,
+/// SQLite's convention; lists, records, and Results can't be stored.
+fn to_sql(column: &str, value: &Value) -> SigResult<SqlValue> {
+    Ok(match value {
+        Value::Null => SqlValue::Null,
+        Value::Int(n) => SqlValue::Integer(*n),
+        Value::Float(f) => SqlValue::Real(*f),
+        Value::Str(s) => SqlValue::Text(s.clone()),
+        Value::Bool(b) => SqlValue::Integer(i64::from(*b)),
+        other => {
+            return Err(Signal::Fatal(format!(
+                "cannot store {other} in column '{column}': only numbers, strings, bools, and null fit in a table"
+            )));
+        }
+    })
 }
 
 /// Wraps a table or column name in double quotes for SQL, so names are never
@@ -1128,5 +1342,155 @@ var result = select name from nobody where age > 1"#;
         let err =
             run("var people = [{ name: \"Ann\" }]\nvar rows = select age from people").unwrap_err();
         assert!(err.contains("unknown column 'age' in 'people'"), "{err}");
+    }
+
+    /// Reads `SELECT name, age FROM customers ORDER BY rowid` straight from
+    /// SQLite, to check what writes actually stored.
+    fn names_and_ages(path: &std::path::Path) -> Vec<(String, Option<i64>)> {
+        let conn = Connection::open(path).unwrap();
+        let mut stmt = conn
+            .prepare("SELECT name, age FROM customers ORDER BY rowid")
+            .unwrap();
+        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    }
+
+    #[test]
+    fn insert_adds_a_row_from_a_record() {
+        let (path, db) = temp_db("insert");
+        run(&format!(
+            r#"open "{db}"
+insert into customers {{ name: "Fay", age: 40 }}"#
+        ))
+        .unwrap();
+        assert_eq!(
+            names_and_ages(&path).last().unwrap(),
+            &("Fay".into(), Some(40))
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn insert_accepts_a_record_variable_and_stores_bools_as_numbers() {
+        let (path, db) = temp_db("insert_var");
+        run(&format!(
+            r#"open "{db}"
+var c = {{ name: "Gus", age: true }}
+insert into customers c"#
+        ))
+        .unwrap();
+        assert_eq!(
+            names_and_ages(&path).last().unwrap(),
+            &("Gus".into(), Some(1))
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn insert_unknown_column_or_non_record_is_an_error() {
+        let (path, db) = temp_db("insert_bad");
+        let err = run(&format!(
+            r#"open "{db}"
+insert into customers {{ nmae: "Fay" }}"#
+        ))
+        .unwrap_err();
+        assert!(err.contains("unknown column 'nmae'"), "{err}");
+        let err = run(&format!(
+            r#"open "{db}"
+insert into customers 5"#
+        ))
+        .unwrap_err();
+        assert!(err.contains("insert expects a record"), "{err}");
+        assert_eq!(names_and_ages(&path).len(), 2);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn update_changes_only_matching_rows_using_their_own_values() {
+        let (path, db) = temp_db("update");
+        run(&format!(
+            r#"open "{db}"
+update customers set age = age + 1, name = name + "!" where age < 18"#
+        ))
+        .unwrap();
+        assert_eq!(
+            names_and_ages(&path),
+            vec![("Ann".into(), Some(34)), ("Bo!".into(), Some(18))]
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn update_where_true_changes_every_row() {
+        let (path, db) = temp_db("update_all");
+        run(&format!(
+            r#"open "{db}"
+update customers set age = 0 where true"#
+        ))
+        .unwrap();
+        assert_eq!(
+            names_and_ages(&path),
+            vec![("Ann".into(), Some(0)), ("Bo".into(), Some(0))]
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn delete_removes_only_matching_rows() {
+        let (path, db) = temp_db("delete");
+        run(&format!(
+            r#"open "{db}"
+delete from customers where age < 18"#
+        ))
+        .unwrap();
+        assert_eq!(names_and_ages(&path), vec![("Ann".into(), Some(34))]);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_failed_update_leaves_the_table_unchanged() {
+        let (path, db) = temp_db("update_atomic");
+        Connection::open(&path)
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE strict_people (name TEXT NOT NULL, age INTEGER);
+                 INSERT INTO strict_people VALUES ('Ann', 1), ('Bo', 2);",
+            )
+            .unwrap();
+        // Row 1 gets a valid name; row 2 gets null, which violates NOT NULL.
+        let err = run(&format!(
+            r#"fn new_name(a: int) -> string {{
+    if a == 1 {{
+        return "Changed"
+    }}
+    return null
+}}
+open "{db}"
+update strict_people set name = new_name(age) where true"#
+        ))
+        .unwrap_err();
+        assert!(err.contains("update failed"), "{err}");
+        let conn = Connection::open(&path).unwrap();
+        let first: String = conn
+            .query_row("SELECT name FROM strict_people WHERE age = 1", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(first, "Ann", "row 1 must be rolled back");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn update_cannot_store_a_list() {
+        let (path, db) = temp_db("update_list");
+        let err = run(&format!(
+            r#"open "{db}"
+update customers set name = [1] where true"#
+        ))
+        .unwrap_err();
+        assert!(err.contains("cannot store"), "{err}");
+        let _ = std::fs::remove_file(&path);
     }
 }

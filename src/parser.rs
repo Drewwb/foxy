@@ -35,6 +35,9 @@ impl Parser {
             Token::Return => self.parse_return(),
             Token::Import => self.parse_import(),
             Token::Open => self.parse_open(),
+            Token::Insert => self.parse_insert(),
+            Token::Update => self.parse_update(),
+            Token::Delete => self.parse_delete(),
             Token::Ident(_) if self.peek_at(1) == &Token::Equals => self.parse_assign(),
             _ => Ok(Stmt::ExprStmt(self.parse_expr()?)),
         }
@@ -204,6 +207,65 @@ impl Parser {
                 "expected a string path after 'open', found {other:?}"
             )),
         }
+    }
+
+    /// `insert into TABLE expr`. `into` is a contextual word, not a keyword,
+    /// so it stays usable as an ordinary name elsewhere.
+    fn parse_insert(&mut self) -> ParseResult<Stmt> {
+        self.expect(Token::Insert)?;
+        self.expect_word("into")?;
+        let table = self.expect_ident()?;
+        let record = self.parse_expr()?;
+        Ok(Stmt::Insert { table, record })
+    }
+
+    /// `update TABLE set col = expr ("," col = expr)* where expr`. `set` is
+    /// contextual, like `into`.
+    fn parse_update(&mut self) -> ParseResult<Stmt> {
+        self.expect(Token::Update)?;
+        let table = self.expect_ident()?;
+        self.expect_word("set")?;
+        let mut assignments = Vec::new();
+        loop {
+            let column = self.expect_ident()?;
+            self.expect(Token::Equals)?;
+            assignments.push((column, self.parse_expr()?));
+            if self.check(&Token::Comma) {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+        let where_clause = self.parse_required_where("update")?;
+        Ok(Stmt::Update {
+            table,
+            assignments,
+            where_clause,
+        })
+    }
+
+    /// `delete from TABLE where expr`.
+    fn parse_delete(&mut self) -> ParseResult<Stmt> {
+        self.expect(Token::Delete)?;
+        self.expect(Token::From)?;
+        let table = self.expect_ident()?;
+        let where_clause = self.parse_required_where("delete")?;
+        Ok(Stmt::Delete {
+            table,
+            where_clause,
+        })
+    }
+
+    /// `update` and `delete` must say which rows they touch, so a forgotten
+    /// `where` can't silently change or wipe a whole table.
+    fn parse_required_where(&mut self, statement: &str) -> ParseResult<Expr> {
+        if !self.check(&Token::Where) {
+            return Err(format!(
+                "`{statement}` needs a `where` clause; use `where true` to affect every row"
+            ));
+        }
+        self.advance();
+        self.parse_expr()
     }
 
     fn starts_expr(&self) -> bool {
@@ -512,6 +574,17 @@ impl Parser {
             Ok(())
         } else {
             Err(format!("expected {tok:?}, found {:?}", self.peek()))
+        }
+    }
+
+    /// Expects an identifier with exactly this spelling (a contextual word).
+    fn expect_word(&mut self, word: &str) -> ParseResult<()> {
+        match self.peek() {
+            Token::Ident(name) if name == word => {
+                self.advance();
+                Ok(())
+            }
+            other => Err(format!("expected '{word}', found {other:?}")),
         }
     }
 
@@ -889,6 +962,44 @@ mod tests {
             parse(r#"open "shop.db""#),
             vec![Stmt::Open("shop.db".into())]
         );
+    }
+
+    #[test]
+    fn parses_insert_update_delete() {
+        let stmts = parse(
+            "insert into customers { name: \"Fay\" }\n\
+             update customers set age = age + 1, name = \"B\" where age < 18\n\
+             delete from customers where age < 18",
+        );
+        assert!(
+            matches!(&stmts[0], Stmt::Insert { table, record: Expr::Record(_) } if table == "customers")
+        );
+        match &stmts[1] {
+            Stmt::Update {
+                table, assignments, ..
+            } => {
+                assert_eq!(table, "customers");
+                let cols: Vec<&str> = assignments.iter().map(|(c, _)| c.as_str()).collect();
+                assert_eq!(cols, ["age", "name"]);
+            }
+            other => panic!("expected update, got {other:?}"),
+        }
+        assert!(matches!(&stmts[2], Stmt::Delete { table, .. } if table == "customers"));
+    }
+
+    #[test]
+    fn update_and_delete_require_where() {
+        for src in ["update customers set age = 1", "delete from customers"] {
+            let tokens = Lexer::new(src).tokenize().expect("lex should succeed");
+            let err = Parser::new(tokens).parse_program().unwrap_err();
+            assert!(err.contains("needs a `where` clause"), "{err}");
+        }
+    }
+
+    #[test]
+    fn into_and_set_are_still_ordinary_names() {
+        let stmts = parse("var set = 1\nvar into = set");
+        assert_eq!(stmts.len(), 2);
     }
 
     #[test]

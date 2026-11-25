@@ -43,6 +43,9 @@ statement       ::= var_decl
                    | return_stmt
                    | import_stmt
                    | open_stmt
+                   | insert_stmt
+                   | update_stmt
+                   | delete_stmt
                    | expr_stmt
 
 var_decl        ::= "var" IDENT "=" expr
@@ -64,6 +67,11 @@ return_stmt     ::= "return" expr?
 import_stmt     ::= "import" STRING
 
 open_stmt       ::= "open" STRING     (* opens a SQLite database file; Milestone 2 *)
+
+insert_stmt     ::= "insert" "into" IDENT expr                                (* expr must be a record *)
+update_stmt     ::= "update" IDENT "set" IDENT "=" expr ("," IDENT "=" expr)* "where" expr
+delete_stmt     ::= "delete" "from" IDENT "where" expr
+                    (* `into` and `set` are contextual: ordinary names everywhere else *)
 
 expr_stmt       ::= expr
 
@@ -103,6 +111,8 @@ select_expr     ::= "select" IDENT ("," IDENT)* "from" IDENT ("where" expr)?
 **Milestone 2 decisions (Drew, Nov 2026):** a program opens a whole database with `open "shop.db"` (not `open table`), and every table in it is then usable by name. `select` returns a list of records, fields in the order selected; a dedicated cursor type can come later. `where` is evaluated by the interpreter row by row, not translated to SQL. Opening a file that doesn't exist is an error (no empty database is created). Inside `where`, every column of the current row is in scope by name (selected or not), and columns shadow variables of the same name, as in SQL. Column names match case-insensitively, like SQLite.
 
 **Cursors (query a query):** the name after `from` is first looked up as a variable; if one is in scope it must hold a list of records, and it is queried instead of a database table (no `open` needed). A variable wins over a table of the same name. A record missing a field reads as `null` for it; selecting from an empty list returns an empty list.
+
+**Writes (Drew, Nov 2026):** SQL-like `insert into` / `update ... set ... where` / `delete from ... where`, always against a database table (never a variable). `update` and `delete` must have a `where` clause — a parse error otherwise — and `where true` means every row, so a forgotten clause can't wipe a table. `where` and `set` expressions are evaluated per row by the interpreter, with the row's columns in scope (so `set age = age + 1` works). All rows are evaluated first, then every change is written in one SQLite transaction: if anything fails, nothing changes. Values stored: int, float, string, null; bools as 1/0; lists, records, and Results are rejected.
 
 ## Functions, `Result`, and `?`
 

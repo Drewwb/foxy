@@ -19,6 +19,9 @@ pub enum Token {
     In,
     Import,
     Open,
+    Insert,
+    Update,
+    Delete,
     True,
     False,
     Null,
@@ -330,6 +333,9 @@ impl Lexer {
             "in" => Token::In,
             "import" => Token::Import,
             "open" => Token::Open,
+            "insert" => Token::Insert,
+            "update" => Token::Update,
+            "delete" => Token::Delete,
             "true" => Token::True,
             "false" => Token::False,
             "null" => Token::Null,
@@ -422,7 +428,7 @@ mod tests {
     #[test]
     fn lexes_control_flow_keywords() {
         assert_eq!(
-            lex("if else while for in import open"),
+            lex("if else while for in import open insert update delete"),
             vec![
                 Token::If,
                 Token::Else,
@@ -431,6 +437,9 @@ mod tests {
                 Token::In,
                 Token::Import,
                 Token::Open,
+                Token::Insert,
+                Token::Update,
+                Token::Delete,
                 Token::Eof,
             ]
         );

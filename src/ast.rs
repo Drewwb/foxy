@@ -33,6 +33,22 @@ pub enum Stmt {
     Import(String),
     /// `open "path.db"` -- opens a SQLite database for later `select`s.
     Open(String),
+    /// `insert into TABLE expr` -- `expr` must evaluate to a record.
+    Insert {
+        table: String,
+        record: Expr,
+    },
+    /// `update TABLE set col = expr, ... where expr`. `where` is required.
+    Update {
+        table: String,
+        assignments: Vec<(String, Expr)>,
+        where_clause: Expr,
+    },
+    /// `delete from TABLE where expr`. `where` is required.
+    Delete {
+        table: String,
+        where_clause: Expr,
+    },
     ExprStmt(Expr),
 }
 

@@ -2,7 +2,7 @@
 
 *SQLite's embeddability + FoxPro's data-language fusion + modern tooling.*
 
-**Status:** early days. Milestone 1 (the kernel) is functionally complete: lexer, parser, tree-walking interpreter, and REPL, with 68 tests. It runs small programs (see `examples/fizzbuzz.foxy` and `examples/file_io.foxy`). There is no data engine, static typing, or module resolution yet; those are Milestones 2–4.
+**Status:** early days. Milestone 1 (the kernel) is functionally complete: lexer, parser, tree-walking interpreter, and REPL. Milestone 2 has started: `open "file.db"` opens a SQLite database and `select ... from ... where ...` returns rows as records (see `examples/hello_data.foxy`). There is no cursor type, insert/update/delete, static typing, or module resolution yet.
 
 ```
 cargo build
@@ -120,7 +120,7 @@ Kept in spirit where noted; the implementations do not survive.
 
 - [x] Write the **language manifesto** (this doc is the seed) — publish it early; it's also the recruiting tool.
 - [x] Choose implementation host language — **Rust**, confirmed after a throwaway lexer/parser spike (see `research/spike-rust/`).
-- [ ] Choose storage engine for v0 (**SQLite embedded** is the pragmatic pick; revisit custom engine post-1.0).
+- [x] Choose storage engine for v0 — **SQLite embedded** (bundled via `rusqlite`); revisit custom engine post-1.0.
 - [x] Draft the **core grammar** (EBNF): keywords, expressions, query syntax, module syntax. See [`docs/grammar.md`](docs/grammar.md).
 - [ ] Specify the type system philosophy: gradual typing, schema types, NULL semantics — written down *before* coding.
 - [x] Set up repo, license (MIT), CI, and a `CONTRIBUTING.md`.
@@ -145,14 +145,14 @@ Kept in spirit where noted; the implementations do not survive.
 ### Milestone 2 — The Data Soul (Weeks 13–24)
 *"The reason Foxy exists comes alive."*
 
-- [ ] Embed SQLite; design the Foxy-to-storage mapping.
+- [x] Embed SQLite; design the Foxy-to-storage mapping. `open "file.db"` opens a database; `select` returns a list of records (SQLite integer/real/text/NULL → `int`/`float`/`string`/`null`); `where` is evaluated by the interpreter per row. Decisions recorded in [`docs/grammar.md`](docs/grammar.md).
 - [ ] Native table syntax: `open table customers`, `select ... into cursor`, insert/update/delete as language statements.
 - [ ] **Cursors as first-class values:** re-queryable, indexable, iterable, passable to functions.
 - [ ] Schema types: compiler/interpreter validates column names and types against known schemas.
 - [ ] DBF **import** tool (`foxy import legacy.dbf`) — the bridge for FoxPro refugees, and a great marketing story.
 - [ ] REPL data affordances: pretty-printed result grids, `describe`, quick histograms.
 
-**Exit criteria:** the 3-line data hello-world works; a typo'd column name fails at check time; a real DBF file imports cleanly.
+**Exit criteria:** the 3-line data hello-world works ✓ (`examples/hello_data.foxy`); a typo'd column name fails at check time (fails at run time today, with a clear message); a real DBF file imports cleanly.
 
 ### Milestone 3 — Instant UI (Weeks 25–32)
 *"The BROWSE moment."*

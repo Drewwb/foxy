@@ -1,0 +1,11 @@
+// The Milestone 2 "data hello-world": open a database, query it, print it.
+// Run from the repo root: cargo run -- run examples/hello_data.foxy
+open "examples/shop.db"
+var adults = select name, age from customers where age >= 18
+print(adults)
+
+// Rows are ordinary records, so the rest of the language works on them.
+// `where` sees every column of the row, even ones that aren't selected.
+for c in select name, balance from customers where city == "Olympia" {
+    print(c.name, "owes", c.balance)
+}

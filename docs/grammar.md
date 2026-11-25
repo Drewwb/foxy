@@ -100,7 +100,7 @@ select_expr     ::= "select" IDENT ("," IDENT)* "from" IDENT ("where" expr)?
 
 `select` stays exactly as spiked — it's already core grammar, not deferred to Milestone 2. What *is* deferred: `open table`, `into cursor`, and insert/update/delete statements, none of which are needed to parse a `select` expression.
 
-**Milestone 2 decisions (Drew, Nov 2026):** a program opens a whole database with `open "shop.db"` (not `open table`), and every table in it is then usable by name. `select` returns a list of records, fields in the order selected; a dedicated cursor type can come later. `where` is evaluated by the interpreter row by row, not translated to SQL. Opening a file that doesn't exist is an error (no empty database is created).
+**Milestone 2 decisions (Drew, Nov 2026):** a program opens a whole database with `open "shop.db"` (not `open table`), and every table in it is then usable by name. `select` returns a list of records, fields in the order selected; a dedicated cursor type can come later. `where` is evaluated by the interpreter row by row, not translated to SQL. Opening a file that doesn't exist is an error (no empty database is created). Inside `where`, every column of the current row is in scope by name (selected or not), and columns shadow variables of the same name, as in SQL. Column names match case-insensitively, like SQLite.
 
 ## Functions, `Result`, and `?`
 

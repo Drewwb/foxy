@@ -298,42 +298,37 @@ impl Interpreter {
                 columns,
                 table,
                 where_clause,
-            } => {
-                if where_clause.is_some() {
-                    return Err(Signal::Fatal(
-                        "'where' in select is not implemented yet".to_string(),
-                    ));
-                }
-                let rows = self.query_rows(columns, table)?;
-                Ok(Value::List(rows))
-            }
+            } => self.eval_select(columns, table, where_clause.as_deref(), scopes),
         }
     }
 
-    /// Runs `SELECT columns FROM table` against the open database and turns
-    /// each row into a record, with fields in the order they were selected.
-    fn query_rows(&self, columns: &[String], table: &str) -> SigResult<Vec<Value>> {
+    /// Reads every row of `table` from the open database. Returns the
+    /// table's column names and the rows as Foxy values, in column order.
+    fn fetch_table(&self, table: &str) -> SigResult<(Vec<String>, Vec<Vec<Value>>)> {
         let Some(db) = &self.db else {
             return Err(Signal::Fatal(
                 "no database is open; use `open \"file.db\"` before `select`".to_string(),
             ));
         };
 
-        let column_list = columns
-            .iter()
-            .map(|c| quote_ident(c))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let sql = format!("SELECT {column_list} FROM {}", quote_ident(table));
-        let sql_err = |e: rusqlite::Error| Signal::Fatal(format!("query failed: {e}"));
+        let sql = format!("SELECT * FROM {}", quote_ident(table));
+        let sql_err = |e: rusqlite::Error| {
+            let msg = e.to_string();
+            if msg.starts_with("no such table") {
+                Signal::Fatal(format!("unknown table '{table}'"))
+            } else {
+                Signal::Fatal(format!("query failed: {msg}"))
+            }
+        };
 
         let mut stmt = db.prepare(&sql).map_err(sql_err)?;
+        let column_names: Vec<String> = stmt.column_names().into_iter().map(String::from).collect();
         let mut rows = stmt.query([]).map_err(sql_err)?;
         let mut out = Vec::new();
         while let Some(row) = rows.next().map_err(sql_err)? {
-            let mut fields = Vec::with_capacity(columns.len());
-            for (i, name) in columns.iter().enumerate() {
-                let value = match row.get_ref(i).map_err(sql_err)? {
+            let mut values = Vec::with_capacity(column_names.len());
+            for (i, name) in column_names.iter().enumerate() {
+                values.push(match row.get_ref(i).map_err(sql_err)? {
                     ValueRef::Null => Value::Null,
                     ValueRef::Integer(n) => Value::Int(n),
                     ValueRef::Real(f) => Value::Float(f),
@@ -345,12 +340,68 @@ impl Interpreter {
                             "column '{name}' holds binary data, which Foxy can't represent yet"
                         )));
                     }
-                };
-                fields.push((name.clone(), value));
+                });
             }
+            out.push(values);
+        }
+        Ok((column_names, out))
+    }
+
+    /// Evaluates a `select`: reads the table, keeps the rows where the
+    /// `where` expression is true, and returns the chosen columns of each
+    /// kept row as a record, fields in the order they were selected.
+    ///
+    /// Inside `where`, every column of the current row is in scope by name,
+    /// including columns that aren't selected. Columns shadow variables of
+    /// the same name, like in SQL.
+    fn eval_select(
+        &mut self,
+        columns: &[String],
+        table: &str,
+        where_clause: Option<&Expr>,
+        scopes: &mut ScopeStack,
+    ) -> SigResult<Value> {
+        let (column_names, rows) = self.fetch_table(table)?;
+
+        // Resolve each selected column to its position up front, so a typo
+        // fails even when the table is empty. SQLite names are case-insensitive.
+        let mut picks = Vec::with_capacity(columns.len());
+        for col in columns {
+            let Some(i) = column_names
+                .iter()
+                .position(|c| c.eq_ignore_ascii_case(col))
+            else {
+                return Err(Signal::Fatal(format!(
+                    "unknown column '{col}' in table '{table}' (columns: {})",
+                    column_names.join(", ")
+                )));
+            };
+            picks.push((col.clone(), i));
+        }
+
+        let mut out = Vec::new();
+        for row in rows {
+            if let Some(condition) = where_clause {
+                scopes.push(
+                    column_names
+                        .iter()
+                        .cloned()
+                        .zip(row.iter().cloned())
+                        .collect(),
+                );
+                let keep = self.eval_bool(condition, scopes);
+                scopes.pop();
+                if !keep? {
+                    continue;
+                }
+            }
+            let fields = picks
+                .iter()
+                .map(|(name, i)| (name.clone(), row[*i].clone()))
+                .collect();
             out.push(Value::Record(fields));
         }
-        Ok(out)
+        Ok(Value::List(out))
     }
 
     fn eval_call(
@@ -853,7 +904,90 @@ var result = total"#
 var rows = select nmae from customers"#
         ))
         .unwrap_err();
-        assert!(err.contains("nmae"), "{err}");
+        assert!(err.contains("unknown column 'nmae'"), "{err}");
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn select_where_filters_rows() {
+        let (path, db) = temp_db("where_filter");
+        let src = format!(
+            r#"open "{db}"
+var result = select name from customers where age >= 18"#
+        );
+        assert_eq!(
+            eval_result(&src),
+            Value::List(vec![Value::Record(vec![(
+                "name".into(),
+                Value::Str("Ann".into())
+            )])])
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn select_where_can_use_variables_and_functions() {
+        let (path, db) = temp_db("where_fn");
+        let src = format!(
+            r#"fn is_minor(a: int, limit: int) -> bool {{
+    return a < limit
+}}
+open "{db}"
+var limit = 18
+var result = select name from customers where is_minor(age, limit)"#
+        );
+        assert_eq!(
+            eval_result(&src),
+            Value::List(vec![Value::Record(vec![(
+                "name".into(),
+                Value::Str("Bo".into())
+            )])])
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn select_where_with_no_matches_is_an_empty_list() {
+        let (path, db) = temp_db("where_empty");
+        let src = format!(
+            r#"open "{db}"
+var result = select name from customers where age > 100"#
+        );
+        assert_eq!(eval_result(&src), Value::List(vec![]));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn select_where_must_be_a_bool() {
+        let (path, db) = temp_db("where_not_bool");
+        let err = run(&format!(
+            r#"open "{db}"
+var rows = select name from customers where age"#
+        ))
+        .unwrap_err();
+        assert!(err.contains("condition must be a bool"), "{err}");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn select_unknown_table_is_a_clear_error() {
+        let (path, db) = temp_db("bad_table");
+        let err = run(&format!(
+            r#"open "{db}"
+var rows = select name from custmers"#
+        ))
+        .unwrap_err();
+        assert!(err.contains("unknown table 'custmers'"), "{err}");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn runs_hello_data_example() {
+        let src = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/examples/hello_data.foxy"
+        ))
+        .expect("hello_data example should exist");
+        assert!(run(&src).is_ok());
     }
 }
